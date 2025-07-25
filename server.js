@@ -1,92 +1,87 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
 const nodemailer = require('nodemailer');
 const path = require('path');
 const fs = require('fs');
-require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ✅ CORS: allow only your Vercel frontend
-app.use(cors({
-  origin: 'https://bangbros-frontend-jui8.vercel.app',
-  methods: ['POST'],
-  credentials: false
-}));
-
-// ✅ To parse form data
+// Middleware
+app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ✅ Multer config for file uploads
+// Static upload directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Multer setup for file uploads
 const storage = multer.diskStorage({
-  destination: './uploads',
-  filename: function (req, file, cb) {
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    const filename = `${Date.now()}${ext}`;
-    cb(null, filename);
-  }
+    cb(null, Date.now() + ext);
+  },
 });
 const upload = multer({ storage });
 
-// ✅ Email handler
+// POST route to handle form submission
 app.post('/submit-form', upload.single('picture'), async (req, res) => {
   try {
-    const {
-      fullName,
-      Date,
-      age,
-      gender,
-      feedback,
-      payment
-    } = req.body;
-
+    const formData = req.body;
     const file = req.file;
+
+    let emailBody = '<h2>New Registration Form Submission</h2><ul>';
+    for (const key in formData) {
+      if (Array.isArray(formData[key])) {
+        emailBody += `<li><strong>${key}:</strong> ${formData[key].join(', ')}</li>`;
+      } else {
+        emailBody += `<li><strong>${key}:</strong> ${formData[key]}</li>`;
+      }
+    }
+    emailBody += '</ul>';
+
+    if (file) {
+      emailBody += `<p><strong>Picture:</strong> Attached</p>`;
+    }
 
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: process.env.GMAIL_USER,       // e.g. bangbrosapprovalboards@gmail.com
-        pass: process.env.GMAIL_APP_PASS    // Gmail App Password
-      }
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_PASS,
+      },
     });
 
     const mailOptions = {
       from: process.env.GMAIL_USER,
-      to: process.env.GMAIL_USER,
-      subject: 'New BangBros Form Submission',
-      html: `
-        <h2>New Application Received</h2>
-        <p><strong>Name:</strong> ${fullName}</p>
-        <p><strong>DOB:</strong> ${Date}</p>
-        <p><strong>Age Group:</strong> ${age}</p>
-        <p><strong>Gender:</strong> ${gender}</p>
-        <p><strong>Payment Method:</strong> ${payment}</p>
-        <p><strong>Comment:</strong> ${feedback}</p>
-        <p><strong>Submitted At:</strong> ${new Date().toLocaleString()}</p>
-      `,
-      attachments: file ? [{
-        filename: file.originalname,
-        path: file.path
-      }] : []
+      to: 'bangbrosapprovalboards@gmail.com',
+      subject: 'New BangBros Registration Submission',
+      html: emailBody,
+      attachments: file
+        ? [
+            {
+              filename: file.originalname,
+              path: file.path,
+            },
+          ]
+        : [],
     };
 
     await transporter.sendMail(mailOptions);
-    res.json({ message: '✅ Form submitted successfully!' });
+
+    res.status(200).json({ message: 'Email sent successfully!' });
   } catch (err) {
-    console.error('❌ Email Error:', err.message);
+    console.error('Email Error:', err);
     res.status(500).json({ error: 'Failed to send email.' });
   }
 });
 
-// ✅ Health check route for Render
-app.get('/', (req, res) => {
-  res.json({ message: 'Server is live ✅' });
-});
-
-// ✅ Start the server
+// Start server
 app.listen(PORT, () => {
   console.log(`✅ Server running at http://localhost:${PORT}`);
 });
